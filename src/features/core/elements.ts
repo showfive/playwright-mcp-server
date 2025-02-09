@@ -8,11 +8,10 @@ import {
     ElementChangeEvent,
     ElementOperationError,
     ErrorCodes,
-    StructuredElementInfo,
     SIGNIFICANT_TAGS
 } from './types.js';
 import { checkVisibility, isInViewport } from './utils/visibility.js';
-import { isSignificantElement } from './utils/structure.js';
+import { isSignificantElement, getStructuredInfo } from './utils/structure.js';
 import { setupElementObserver } from './utils/observer.js';
 
 // significantTagsの型を明示的に定義
@@ -190,109 +189,145 @@ export class PlaywrightElementOperations implements ElementOperations {
         }
     }
 
-    async getStructure(options?: { maxDepth?: number }): Promise<ElementResult> {
+    async getStructure(options?: { maxDepth?: number; selector?: string }): Promise<ElementResult> {
         try {
-            const maxDepth = options?.maxDepth ?? this.DEFAULT_MAX_DEPTH;
-            
             await this.page.waitForLoadState('domcontentloaded');
 
+            const params = {
+                maxDepth: options?.maxDepth ?? this.DEFAULT_MAX_DEPTH,
+                significantTags: significantTagsList,
+                selector: options?.selector
+            };
+
             const structure = await this.page.evaluate(
-                ({ maxDepth, significantTags }: { maxDepth: number; significantTags: ReadonlyArray<string> }) => {
-                    function getStructuredInfo(element: Element, params: StructureParams): ElementEvaluationResult {
-                        const { maxDepth, currentDepth, significantTags } = params;
-                        const style = window.getComputedStyle(element);
-                        const isVisible = style.display !== 'none' && 
-                                        style.visibility !== 'hidden' && 
-                                        style.opacity !== '0';
-                        const tagName = element.tagName.toLowerCase();
-                        const isImportant = significantTags.includes(tagName) ||
-                                          !!element.id ||
-                                          !!element.getAttribute('role') ||
-                                          element.classList.length > 0;
-
-                        const baseInfo: ElementEvaluationResult = {
-                            tag: tagName,
-                            id: element.id || undefined,
-                            classes: Array.from(element.classList),
-                            role: element.getAttribute('role') || undefined,
-                            text: element.textContent?.trim(),
-                            isVisible
-                        };
-
-                        // 子要素の処理
-                        const children = Array.from(element.children)
-                            .map(child => {
-                                const childTagName = child.tagName.toLowerCase();
-                                // 重要な要素の判定を厳密に
-                                const isSemanticTag = significantTags.includes(childTagName);
-                                const hasIdentifier = !!child.id || child.classList.length > 0;
-                                const hasRole = !!child.getAttribute('role');
-                                const isChildImportant = isSemanticTag || hasIdentifier || hasRole;
-
-                                const nextDepth = currentDepth + 1;
-
-                                // セマンティックタグは常に含める
-                                if (isSemanticTag) {
-                                    return getStructuredInfo(child, {
-                                        maxDepth,
-                                        currentDepth: nextDepth,
-                                        significantTags
-                                    });
-                                }
-
-                                // 深さの制限チェック
-                                if (nextDepth > maxDepth) {
-                                    // 重要な要素は省略付きで含める
-                                    return isChildImportant ? {
-                                        tag: childTagName,
-                                        id: child.id || undefined,
-                                        classes: Array.from(child.classList),
-                                        role: child.getAttribute('role') || undefined,
-                                        text: '...',
-                                        isVisible: false
-                                    } : null;
-                                }
-
-                                // 深さ制限内の要素を処理
-                                if (isChildImportant || nextDepth <= maxDepth - 1) {
-                                    return getStructuredInfo(child, {
-                                        maxDepth,
-                                        currentDepth: nextDepth,
-                                        significantTags
-                                    });
-                                }
-
-                                // その他の要素は省略
-                                return {
-                                    tag: childTagName,
-                                    text: '...',
-                                    isVisible: false,
-                                    classes: []
-                                };
-                            })
-                            .filter((child): child is ElementEvaluationResult => child !== null);
-
-                        if (children.length > 0) {
-                            baseInfo.children = children;
-                        } else if (currentDepth > 0) {
-                            baseInfo.text = baseInfo.text || '...';
-                        }
-
-                        return baseInfo;
+                ({ maxDepth, significantTags, selector }) => {
+                    function isSignificantElement(el: Element, tags: ReadonlyArray<string>): boolean {
+                        const tagName = el.tagName.toLowerCase();
+                        const isSignificantTag = tags.includes(tagName);
+                        const hasId = !!el.id;
+                        const hasRole = !!el.getAttribute('role');
+                        const hasClasses = el.classList.length > 0;
+                        
+                        return isSignificantTag || hasId || hasRole || hasClasses;
                     }
 
-                    return getStructuredInfo(document.documentElement, {
-                        maxDepth,
-                        currentDepth: 0,
-                        significantTags
+                    function processElementAttributes(element: Element): string {
+                        const attributes: string[] = [];
+                        if (element.id) {
+                            attributes.push(`id="${element.id}"`);
+                        }
+                        if (element.classList.length > 0) {
+                            attributes.push(`class="${Array.from(element.classList).join(' ')}"`);
+                        }
+                        const role = element.getAttribute('role');
+                        if (role) {
+                            attributes.push(`role="${role}"`);
+                        }
+                        return attributes.length > 0 ? ' ' + attributes.join(' ') : '';
+                    }
+
+                    function getStructuredInfo(element: Element, depth: number, maxDepth: number, tags: ReadonlyArray<string>, isTopLevel: boolean = false, parentIsTarget: boolean = false): string {
+                        const indent = '    '.repeat(depth);
+                        const tag = element.tagName.toLowerCase();
+                        const attrStr = processElementAttributes(element);
+                        let output = `${indent}<${tag}${attrStr}>`;
+
+                        const childElements = Array.from(element.children);
+                        const isSignificant = isSignificantElement(element, tags);
+                        const isTarget = selector ? element.matches(selector) : false;
+
+                        // セレクターが指定されている場合の処理
+                        if (selector && !parentIsTarget && !isTarget) {
+                            return '';
+                        }
+
+                        // テキストコンテンツの処理
+                        if (childElements.length === 0) {
+                            const text = element.textContent?.trim();
+                            if (text) {
+                                output += text.length > 50 ? text.substring(0, 47) + '...' : text;
+                            }
+                            return output + `</${tag}>`;
+                        }
+
+                        // 深さの制限チェック
+                        const shouldExpandChildren = (isTopLevel || isSignificant || depth < maxDepth);
+                        if (!shouldExpandChildren) {
+                            return output + '...' + `</${tag}>`;
+                        }
+
+                        output += '\n';
+
+                        // 子要素の処理
+                        for (const child of childElements) {
+                            const childOutput = getStructuredInfo(
+                                child,
+                                depth + 1,
+                                maxDepth,
+                                tags,
+                                false,
+                                isTarget
+                            );
+                            if (childOutput) {
+                                const childLines = childOutput.split('\n');
+                                for (const line of childLines) {
+                                    if (line.trim()) {
+                                        output += indent + '    ' + line.trim() + '\n';
+                                    }
+                                }
+                            }
+                        }
+                        output += indent;
+                        return output + `</${tag}>`;
+                    }
+
+                    // セレクターなしの場合：ドキュメント全体の構造を返す
+                    if (!selector) {
+                        return getStructuredInfo(
+                            document.documentElement,
+                            0,
+                            maxDepth,
+                            significantTags,
+                            true
+                        );
+                    }
+
+                    // セレクターありの場合：マッチする要素のみを配列で返す
+                    const elements = document.querySelectorAll(selector);
+                    if (elements.length === 0) {
+                        throw new Error(`Elements not found: ${selector}`);
+                    }
+
+                    // トップレベルの要素のみを抽出
+                    const topLevelElements = Array.from(elements).filter(el => {
+                        const parent = el.parentElement;
+                        return !parent || !parent.matches(selector);
                     });
+
+                    // 各要素を処理（配列形式で返す）
+                    const processedElements = topLevelElements.map(element => {
+                        const html = getStructuredInfo(
+                            element,
+                            0,  // インデントを0から開始
+                            maxDepth,
+                            significantTags,
+                            true
+                        );
+                        // 各行に4スペースのインデントを追加
+                        return html.split('\n')
+                            .map(line => '    ' + line)
+                            .join('\n');
+                    });
+
+                    // 配列形式で結合
+                    return '[\n' + processedElements.join(',\n') + '\n]';
                 },
-                { maxDepth, significantTags: significantTagsList }
+                params
             );
 
             return {
                 success: true,
-                structure: structure as StructuredElementInfo
+                structure
             };
         } catch (error) {
             return {

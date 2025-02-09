@@ -54,9 +54,24 @@ describe('BrowserManager', () => {
     });
 
     describe('Browser Management', () => {
-        it('should launch browser when getBrowser is called', async () => {
+        it('should try to launch Brave browser first', async () => {
             const browser = await browserManager.getBrowser();
             expect(chromium.launch).toHaveBeenCalledWith({
+                executablePath: 'C:\\Program Files\\BraveSoftware\\Brave-Browser\\Application\\brave.exe',
+                headless: false
+            });
+            expect(browser).toBeDefined();
+        });
+
+        it('should fallback to default browser if Brave fails', async () => {
+            // 1回目の呼び出しで失敗を模擬
+            (chromium.launch as jest.Mock)
+                .mockRejectedValueOnce(new Error('Brave not found'))
+                .mockResolvedValueOnce(mockBrowser);
+
+            const browser = await browserManager.getBrowser();
+            expect(chromium.launch).toHaveBeenCalledTimes(2);
+            expect(chromium.launch).toHaveBeenLastCalledWith({
                 headless: false
             });
             expect(browser).toBeDefined();

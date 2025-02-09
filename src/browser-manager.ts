@@ -16,9 +16,20 @@ export class BrowserManager {
 
     async getBrowser(): Promise<Browser> {
         if (!this.browser) {
-            this.browser = await chromium.launch({
-                headless: false, // デフォルトで可視化
-            });
+            const defaultOptions = { headless: false };
+            const braveOptions = {
+                executablePath: 'C:\\Program Files\\BraveSoftware\\Brave-Browser\\Application\\brave.exe',
+                ...defaultOptions
+            };
+
+            try {
+                // まずBraveブラウザでの起動を試みる
+                this.browser = await chromium.launch(braveOptions);
+            } catch (error) {
+                // Braveが利用できない場合はデフォルトのChromiumを使用
+                console.log('Falling back to default browser');
+                this.browser = await chromium.launch(defaultOptions);
+            }
         }
         return this.browser;
     }

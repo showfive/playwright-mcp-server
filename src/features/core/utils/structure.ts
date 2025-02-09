@@ -1,4 +1,3 @@
-import { StructuredElementInfo } from '../types.js';
 import { checkVisibility } from './visibility.js';
 
 /**
@@ -22,46 +21,49 @@ export function getStructuredInfo(
     depth: number,
     maxDepth: number,
     significantTags: ReadonlyArray<string>
-): StructuredElementInfo {
-    const style = getComputedStyle(element);
-    const isVisible = checkVisibility(style);
+): string {
+    const indent = '  '.repeat(depth);
     const tag = element.tagName.toLowerCase();
-    const baseInfo: StructuredElementInfo = {
-        tag,
-        id: element.id || undefined,
-        classes: Array.from(element.classList),
-        role: element.getAttribute('role') || undefined,
-        text: element.textContent?.trim(),
-        isVisible
-    };
-
-    if (depth > maxDepth) {
-        return baseInfo;
+    
+    // 属性文字列の生成
+    const attributes: string[] = [];
+    if (element.id) {
+        attributes.push(`id="${element.id}"`);
     }
-
-    const children: (StructuredElementInfo | string)[] = [];
-    let hasSignificantChildren = false;
-
-    Array.from(element.children).forEach(child => {
-        if (isSignificantElement(child, significantTags)) {
-            hasSignificantChildren = true;
-            const childInfo = getStructuredInfo(child, depth + 1, maxDepth, significantTags);
-            children.push(childInfo);
-        } else if (depth < maxDepth) {
-            // 重要でない要素でも、深さが制限内なら子要素をチェック
-            const childInfo = getStructuredInfo(child, depth + 1, maxDepth, significantTags);
-            if (childInfo.children && childInfo.children.length > 0) {
-                children.push(childInfo);
-                hasSignificantChildren = true;
+    if (element.classList.length > 0) {
+        attributes.push(`class="${Array.from(element.classList).join(' ')}"`);
+    }
+    const role = element.getAttribute('role');
+    if (role) {
+        attributes.push(`role="${role}"`);
+    }
+    
+    // タグと属性の文字列を生成
+    const attrStr = attributes.length > 0 ? ' ' + attributes.join(' ') : '';
+    let output = `${indent}<${tag}${attrStr}>`;
+    
+    if (depth > maxDepth) {
+        return output + '...';
+    }
+    
+    // 子要素の処理
+    const childElements = Array.from(element.children);
+    if (childElements.length > 0) {
+        output += '\n';
+        for (const child of childElements) {
+            if (isSignificantElement(child, significantTags) || depth < maxDepth) {
+                output += getStructuredInfo(child, depth + 1, maxDepth, significantTags) + '\n';
+            } else {
+                output += `${indent}  ...`;
             }
         }
-    });
-
-    if (children.length > 0) {
-        baseInfo.children = children;
-    } else if (depth > 1) {
-        baseInfo.children = ["..."];
+        output += indent;
+    } else {
+        const text = element.textContent?.trim();
+        if (text) {
+            output += text.length > 50 ? text.substring(0, 47) + '...' : text;
+        }
     }
-
-    return baseInfo;
+    
+    return output + `</${tag}>`;
 }

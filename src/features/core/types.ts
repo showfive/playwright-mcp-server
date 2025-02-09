@@ -19,19 +19,6 @@ export interface ElementInfo {
 }
 
 /**
- * ページ構造の要素情報
- */
-export interface StructuredElementInfo {
-    tag: string;
-    id?: string;
-    classes: string[];
-    role?: string;
-    text?: string;
-    children?: (StructuredElementInfo | string)[];  // stringは"..."などの省略表現用
-    isVisible: boolean;
-}
-
-/**
  * 要素のクエリ条件
  */
 export interface QueryOptions {
@@ -74,7 +61,7 @@ export interface ElementResult {
     error?: string;
     info?: ElementInfo;
     elements?: ElementInfo[];
-    structure?: StructuredElementInfo;  // ページ構造情報用
+    structure?: string;  // ページ構造情報用（HTMLインデント形式の文字列）
 }
 
 /**
@@ -99,7 +86,7 @@ export interface ElementOperations {
     /**
      * ページ構造を取得
      */
-    getStructure(options?: { maxDepth?: number }): Promise<ElementResult>;
+    getStructure(options?: { maxDepth?: number; selector?: string }): Promise<ElementResult>;
 
     /**
      * 要素の変更を監視

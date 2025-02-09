@@ -170,21 +170,15 @@ describe('PlaywrightElementOperations', () => {
             expect(result.success).toBe(true);
             expect(result.structure).toBeDefined();
 
-            // JSON文字列をパースして検証
-            const structureObj = JSON.parse(JSON.stringify(result.structure));
+            const structureStr = result.structure as string;
             
             // タグの存在を確認
-            const hasHeader = findElementByTag(structureObj, 'header');
-            const hasMain = findElementByTag(structureObj, 'main');
-            const hasNav = findElementByTag(structureObj, 'nav');
-
-            expect(hasHeader).toBe(true);
-            expect(hasMain).toBe(true);
-            expect(hasNav).toBe(true);
-
+            expect(structureStr).toContain('<header>');
+            expect(structureStr).toContain('<main>');
+            expect(structureStr).toContain('<nav');
+            
             // ロールの確認
-            const hasNavigation = findElementByRole(structureObj, 'navigation');
-            expect(hasNavigation).toBe(true);
+            expect(structureStr).toContain('role="navigation"');
         });
 
         it('should handle depth limitation correctly', async () => {
@@ -193,15 +187,181 @@ describe('PlaywrightElementOperations', () => {
             expect(result.success).toBe(true);
             expect(result.structure).toBeDefined();
             
-            const structureObj = JSON.parse(JSON.stringify(result.structure));
+            const structureStr = result.structure as string;
 
             // 省略要素の確認
-            const hasEllipsis = findEllipsis(structureObj);
-            expect(hasEllipsis).toBe(true);
+            expect(structureStr).toContain('...');
 
-            // 構造の深さを確認
-            const maxDepth = getMaxDepth(structureObj);
-            expect(maxDepth).toBeLessThanOrEqual(3); // ルート + maxDepth + 1
+            // 深さ制限の確認（深いネストが表示されないことを確認）
+            expect(structureStr).not.toContain('<p>Deeply nested content</p>');
+        });
+
+        it('should get structure from specific selector', async () => {
+            const result = await elementOps.getStructure({
+                selector: '#test-form',
+                maxDepth: 2
+            });
+
+            expect(result.success).toBe(true);
+            expect(result.structure).toBeDefined();
+
+            const structureStr = result.structure as string;
+            
+            // フォーム要素が含まれているか確認
+            expect(structureStr).toContain('<form id="test-form"');
+            expect(structureStr).toContain('<input id="test-input"');
+            expect(structureStr).toContain('<button id="submit-button"');
+            
+            // フォームの親要素（main）が含まれていないことを確認
+            expect(structureStr).not.toContain('<main>');
+        });
+
+        it('should handle custom depth with selector', async () => {
+            const result = await elementOps.getStructure({
+                selector: '.deep-nested',
+                maxDepth: 1
+            });
+
+            expect(result.success).toBe(true);
+            expect(result.structure).toBeDefined();
+
+            const structureStr = result.structure as string;
+
+            // セクション要素が含まれているか確認
+            expect(structureStr).toContain('<section class="deep-nested"');
+            
+            // 深さ制限により省略されているか確認
+            expect(structureStr).toContain('...');
+            
+            // より深い要素が含まれていないことを確認
+            expect(structureStr).not.toContain('<p>Deeply nested content</p>');
+        });
+
+        it('should return multiple elements when selector matches multiple elements', async () => {
+            // 新しいテストHTMLを設定
+            await page.setContent(`
+                <div>
+                    <button class="test-btn">Button 1</button>
+                    <section>
+                        <button class="test-btn">Button 2</button>
+                    </section>
+                    <button class="test-btn">Button 3</button>
+                </div>
+            `);
+
+            const result = await elementOps.getStructure({
+                selector: '.test-btn',
+                maxDepth: 3
+            });
+
+            expect(result.success).toBe(true);
+            expect(result.structure).toBeDefined();
+
+            const structureStr = result.structure as string;
+            
+            // 配列形式で返されることを確認
+            expect(structureStr.startsWith('[')).toBe(true);
+            expect(structureStr.endsWith(']')).toBe(true);
+            
+            // 全てのボタンが含まれていることを確認
+            expect(structureStr).toContain('Button 1');
+            expect(structureStr).toContain('Button 2');
+            expect(structureStr).toContain('Button 3');
+        });
+
+        it('should handle nested elements correctly when using selector', async () => {
+            // ネストされた要素を含むHTMLを設定
+            await page.setContent(`
+                <div class="level1">
+                    <div class="level2">
+                        <div class="level3">
+                            <p>Deepest content</p>
+                        </div>
+                        <p>Level 2 content</p>
+                    </div>
+                    <p>Level 1 content</p>
+                </div>
+                <div class="standalone">
+                    <p>Standalone content</p>
+                </div>
+            `);
+
+            const result = await elementOps.getStructure({
+                selector: 'div',
+                maxDepth: 3
+            });
+
+            expect(result.success).toBe(true);
+            expect(result.structure).toBeDefined();
+
+            const structureStr = result.structure as string;
+            
+            // 配列形式で返されることを確認
+            expect(structureStr.startsWith('[')).toBe(true);
+            expect(structureStr.endsWith(']')).toBe(true);
+
+            // 全てのdiv要素が配列の要素として含まれることを確認
+            expect(structureStr).toContain('<div class="level1">');
+            expect(structureStr).toContain('<div class="level2">');
+            expect(structureStr).toContain('<div class="level3">');
+            expect(structureStr).toContain('<div class="standalone">');
+
+            // 各要素の内容が適切に含まれていることを確認
+            expect(structureStr).toContain('<p>Deepest content</p>');
+            expect(structureStr).toContain('<p>Level 2 content</p>');
+            expect(structureStr).toContain('<p>Level 1 content</p>');
+            expect(structureStr).toContain('<p>Standalone content</p>');
+        });
+
+        it('should handle deeply nested elements with same selector', async () => {
+            await page.setContent(`
+                <main>
+                    <div class="container">
+                        <div class="nested">
+                            <p>Nested content</p>
+                        </div>
+                        <p>Container content</p>
+                    </div>
+                    <div class="other">Other content</div>
+                </main>
+            `);
+
+            const result = await elementOps.getStructure({
+                selector: 'div',
+                maxDepth: 3
+            });
+
+            expect(result.success).toBe(true);
+            const structureStr = result.structure as string;
+
+            // 各div要素が独立した配列要素として含まれることを確認
+            expect(structureStr).toContain('"container"');
+            expect(structureStr).toContain('"nested"');
+            expect(structureStr).toContain('"other"');
+
+            // ネストされた要素が適切に表示されることを確認
+            expect(structureStr).toContain('<p>Nested content</p>');
+            expect(structureStr).toContain('<p>Container content</p>');
+            expect(structureStr).toContain('Other content');
+        });
+
+        it('should limit maxDepth to 1 when multiple elements are found', async () => {
+            const result = await elementOps.getStructure({
+                selector: 'div',
+                maxDepth: 3
+            });
+
+            expect(result.success).toBe(true);
+            expect(result.structure).toBeDefined();
+
+            const structureStr = result.structure as string;
+            
+            // 配列形式で返されることを確認
+            expect(structureStr.startsWith('[')).toBe(true);
+            expect(structureStr.endsWith(']')).toBe(true);
+
+            // トップレベルの要素は深さが制限されていることを確認
+            expect((structureStr.match(/\.\.\./g) || []).length).toBeGreaterThan(0);
         });
     });
 

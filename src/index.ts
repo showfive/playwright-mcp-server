@@ -1,8 +1,13 @@
 #!/usr/bin/env node
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { BrowserManager } from "./browser-manager.js";
+import {
+    CallToolRequestSchema,
+    ListToolsRequestSchema,
+} from "@modelcontextprotocol/sdk/types.js";
+import { PlaywrightElementOperations } from './features/core/elements.js';
 
 // 人間らしい操作をエミュレートするユーティリティ関数
 const humanDelay = async () => {
@@ -13,134 +18,125 @@ const humanDelay = async () => {
 };
 
 // サーバーの実装
-const server = new McpServer({
-    name: "playwright-automation",
-    version: "1.0.0"
-});
-
-// ブラウザコンテキストを作成するツール
-server.tool(
-    "create_browser",
-    {},
-    async () => {
-        try {
-            const contextId = Math.random().toString(36).substring(7);
-            await BrowserManager.getInstance().createContext(contextId);
-            return {
-                content: [{
-                    type: "text",
-                    text: JSON.stringify({ contextId })
-                }]
-            };
-        } catch (error) {
-            return {
-                content: [{
-                    type: "text",
-                    text: `Error: ${error}`
-                }],
-                isError: true
-            };
+const server = new Server(
+    {
+        name: "playwright-automation",
+        version: "1.0.0"
+    },
+    {
+        capabilities: {
+            tools: {}
         }
     }
 );
 
-// URLに移動するツール
-server.tool(
-    "navigate",
-    {
+// ツールのスキーマ定義
+const toolSchemas = {
+    create_browser: z.object({}),
+    use_keyboard: z.object({
+        contextId: z.string(),
+        selector: z.string(),
+        text: z.string(),
+        submit: z.boolean().optional()
+    }),
+    navigate: z.object({
         contextId: z.string(),
         url: z.string().url()
-    },
-    async ({ contextId, url }) => {
-        try {
-            const context = await BrowserManager.getInstance().getContext(contextId);
-            const page = await context.newPage();
-            await page.goto(url, { waitUntil: 'networkidle' });
-            return {
-                content: [{
-                    type: "text",
-                    text: `Successfully navigated to ${url}`
-                }]
-            };
-        } catch (error) {
-            return {
-                content: [{
-                    type: "text",
-                    text: `Error: ${error}`
-                }],
-                isError: true
-            };
-        }
-    }
-);
-
-// ページ内の全要素情報を取得するツール
-server.tool(
-    "get_elements",
-    {
+    }),
+    get_elements: z.object({
         contextId: z.string(),
-    },
-    async ({ contextId }) => {
-        try {
-            const context = await BrowserManager.getInstance().getContext(contextId);
-            const page = context.pages()[0];
-            
-            const elements = await page.evaluate(() => {
-                const allElements = document.querySelectorAll('*');
-                return Array.from(allElements).map(el => ({
-                    tag: el.tagName.toLowerCase(),
-                    id: el.id,
-                    classes: Array.from(el.classList),
-                    text: el.textContent?.trim(),
-                    isVisible: el.getBoundingClientRect().height > 0 && el.getBoundingClientRect().width > 0,
-                    attributes: Array.from(el.attributes).map(attr => ({
-                        name: attr.name,
-                        value: attr.value
-                    }))
-                }));
-            });
-
-            return {
-                content: [{
-                    type: "text",
-                    text: JSON.stringify(elements, null, 2)
-                }]
-            };
-        } catch (error) {
-            return {
-                content: [{
-                    type: "text",
-                    text: `Error: ${error}`
-                }],
-                isError: true
-            };
-        }
-    }
-);
-
-// クリック可能な要素の一覧を取得するツール
-server.tool(
-    "get_clickable_elements",
-    {
+        maxDepth: z.number().optional(),
+        selector: z.string().optional()
+    }),
+    get_clickable_elements: z.object({
+        contextId: z.string()
+    }),
+    get_element_info: z.object({
         contextId: z.string(),
-    },
-    async ({ contextId }) => {
-        try {
-            const context = await BrowserManager.getInstance().getContext(contextId);
-            const page = context.pages()[0];
-            
-            const clickableElements = await page.evaluate(() => {
-                const isClickable = (el: Element) => {
-                    const style = window.getComputedStyle(el);
-                    return (
-                        style.display !== 'none' &&
-                        style.visibility !== 'hidden' &&
-                        style.opacity !== '0' &&
-                        el.getBoundingClientRect().width > 0 &&
-                        el.getBoundingClientRect().height > 0
-                    );
+        selector: z.string()
+    })
+};
+
+// ツールの説明を定義
+const toolDescriptions = {
+    create_browser: "Creates a new browser context with a visible Chrome instance. The context is initialized with a 1280x720 viewport and a modern Chrome user agent. Uses Playwright's chromium.launch() with headless mode disabled for visual interaction. Returns a unique contextId that can be used for subsequent operations.",
+    use_keyboard: "Simulates human-like keyboard input for the specified element. Features natural typing with random delays, occasional typos and corrections. Submits input either through button click or Enter key, prioritizing visible submit buttons. Includes mouse movements and proper element focusing for more natural interaction.",
+    navigate: "Opens a new page in the specified browser context and navigates to the provided URL. Waits for the network to be idle before completing, ensuring all initial resources are loaded. Requires a valid contextId from create_browser and a properly formatted URL. The page is added to the context's page pool for future operations.",
+    get_elements: "Analyzes the current page's DOM structure and returns a hierarchical representation of elements. When a selector is specified, returns an array of matching elements with proper indentation (4 spaces). Without a selector, returns the entire DOM structure (up to 3 levels deep by default). Identifies significant elements including semantic HTML tags (like main, nav, header), elements with IDs, roles, or classes. The output is formatted as an indented HTML-like structure with attributes and truncated text content. Handles large DOM trees efficiently by limiting depth and showing ellipsis for truncated branches.",
+    get_clickable_elements: "Scans the page for all potentially interactive elements using sophisticated visibility and interactivity checks. Detects elements matching specific selectors (buttons, links, input[type='button'], etc.) and elements with click-related attributes or classes. Filters out invisible elements by checking computed styles (display, visibility, opacity) and dimensions. Returns detailed information about each clickable element, including tag name, ID, text content, role, and classes. Useful for mapping interactive elements for automation.",
+    get_element_info: "Retrieves comprehensive information about a specific DOM element identified by the provided selector. Returns detailed data including: tag name, element ID, text content, all HTML attributes with their values, complete computed styles from getComputedStyle(), and precise bounding box coordinates (x, y, width, height). Performs visibility checks and includes viewport-relative positioning. Throws a descriptive error if the element is not found in the DOM. Essential for detailed element inspection and positioning calculations."
+} as const;
+
+// ツールのハンドラー実装
+server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    const { name, arguments: args } = request.params;
+
+    // バリデーション
+    const schema = toolSchemas[name as keyof typeof toolSchemas];
+    if (!schema) {
+        throw new Error(`Unknown tool: ${name}`);
+    }
+    const validatedArgs = schema.parse(args) as any;
+
+    try {
+        switch (name) {
+            case "create_browser": {
+                const contextId = Math.random().toString(36).substring(7);
+                const browserManager = BrowserManager.getInstance();
+                
+                // まずブラウザを起動
+                await browserManager.getBrowser();
+                
+                // 次にコンテキストを作成
+                await browserManager.createContext(contextId);
+                
+                return {
+                    content: [{
+                        type: "text",
+                        text: JSON.stringify({ contextId })
+                    }]
                 };
+            }
 
+            case "navigate": {
+                const { contextId, url } = validatedArgs;
+                const context = await BrowserManager.getInstance().getContext(contextId);
+                const page = await context.newPage();
+                await page.goto(url, { waitUntil: 'networkidle' });
+                return {
+                    content: [{
+                        type: "text",
+                        text: `Successfully navigated to ${url}`
+                    }]
+                };
+            }
+
+            case "get_elements": {
+                const { contextId, maxDepth: customMaxDepth, selector } = validatedArgs;
+                const context = await BrowserManager.getInstance().getContext(contextId);
+                const page = context.pages()[0];
+                
+                const elementOps = new PlaywrightElementOperations(page);
+                const structureResult = await elementOps.getStructure({
+                    maxDepth: typeof customMaxDepth === 'number' ? customMaxDepth : 3, // デフォルト値を3に設定
+                    selector
+                });
+                const structure = structureResult.structure;
+
+                return {
+                    content: [{
+                        type: "text",
+                        text: structure
+                    }]
+                };
+            }
+
+            case "get_clickable_elements": {
+                const { contextId } = validatedArgs;
+                const context = await BrowserManager.getInstance().getContext(contextId);
+                const page = context.pages()[0];
+                
+                const elementOps = new PlaywrightElementOperations(page);
                 const clickableSelectors = [
                     'button',
                     'a',
@@ -150,244 +146,179 @@ server.tool(
                     '[onclick]',
                     '[class*="btn"]',
                     '[class*="button"]'
-                ];
+                ].join(',');
 
-                const elements = document.querySelectorAll(clickableSelectors.join(','));
-                return Array.from(elements)
-                    .filter(isClickable)
-                    .map(el => ({
-                        tag: el.tagName.toLowerCase(),
-                        id: el.id,
-                        text: el.textContent?.trim(),
-                        selector: el.id ? `#${el.id}` : undefined,
-                        role: el.getAttribute('role'),
-                        classes: Array.from(el.classList)
-                    }));
-            });
+                const result = await elementOps.queryAll({
+                    selector: clickableSelectors,
+                    visible: true
+                });
 
-            return {
-                content: [{
-                    type: "text",
-                    text: JSON.stringify(clickableElements, null, 2)
-                }]
-            };
-        } catch (error) {
-            return {
-                content: [{
-                    type: "text",
-                    text: `Error: ${error}`
-                }],
-                isError: true
-            };
-        }
-    }
-);
+                if (!result.success) {
+                    throw new Error(result.error);
+                }
 
-// 特定の要素の詳細情報を取得するツール
-server.tool(
-    "get_element_info",
-    {
-        contextId: z.string(),
-        selector: z.string()
-    },
-    async ({ contextId, selector }) => {
-        try {
-            const context = await BrowserManager.getInstance().getContext(contextId);
-            const page = context.pages()[0];
-            
-            const elementInfo = await page.evaluate((sel) => {
-                const el = document.querySelector(sel);
-                if (!el) return null;
+                const clickableElements = result.elements?.map(info => ({
+                    tag: info.tag,
+                    id: info.id,
+                    text: info.text,
+                    selector: info.id ? `#${info.id}` : undefined,
+                    role: info.attributes['role'],
+                    classes: info.classes
+                }));
 
-                const rect = el.getBoundingClientRect();
-                const style = window.getComputedStyle(el);
-
-                return {
-                    tag: el.tagName.toLowerCase(),
-                    id: el.id,
-                    classes: Array.from(el.classList),
-                    text: el.textContent?.trim(),
-                    attributes: Array.from(el.attributes).map(attr => ({
-                        name: attr.name,
-                        value: attr.value
-                    })),
-                    isVisible: rect.height > 0 && rect.width > 0,
-                    position: {
-                        x: rect.x,
-                        y: rect.y,
-                        width: rect.width,
-                        height: rect.height
-                    },
-                    styles: {
-                        display: style.display,
-                        visibility: style.visibility,
-                        position: style.position,
-                        zIndex: style.zIndex,
-                        opacity: style.opacity
-                    }
-                };
-            }, selector);
-
-            if (!elementInfo) {
                 return {
                     content: [{
                         type: "text",
-                        text: `Element not found: ${selector}`
-                    }],
-                    isError: true
+                        text: JSON.stringify(clickableElements, null, 2)
+                    }]
                 };
             }
 
-            return {
-                content: [{
-                    type: "text",
-                    text: JSON.stringify(elementInfo, null, 2)
-                }]
-            };
-        } catch (error) {
-            return {
-                content: [{
-                    type: "text",
-                    text: `Error: ${error}`
-                }],
-                isError: true
-            };
-        }
-    }
-);
+            case "use_keyboard": {
+                const { contextId, selector, text, submit = false } = validatedArgs;
+                const context = await BrowserManager.getInstance().getContext(contextId);
+                const page = context.pages()[0];
 
-// クリック操作を実行するツール
-server.tool(
-    "click",
-    {
-        contextId: z.string(),
-        selector: z.string()
-    },
-    async ({ contextId, selector }) => {
-        try {
-            const context = await BrowserManager.getInstance().getContext(contextId);
-            const page = context.pages()[0];
-            await humanDelay();
-            await page.click(selector, { delay: 100 });
-            return {
-                content: [{
-                    type: "text",
-                    text: `Successfully clicked element: ${selector}`
-                }]
-            };
-        } catch (error) {
-            return {
-                content: [{
-                    type: "text",
-                    text: `Error: ${error}`
-                }],
-                isError: true
-            };
-        }
-    }
-);
+                // 要素が表示されるまで待機
+                const element = await page.waitForSelector(selector);
+                if (!element) {
+                    throw new Error(`Element not found: ${selector}`);
+                }
 
-// テキスト入力を実行するツール
-server.tool(
-    "type_text",
-    {
-        contextId: z.string(),
-        selector: z.string(),
-        text: z.string()
-    },
-    async ({ contextId, selector, text }) => {
-        try {
-            const context = await BrowserManager.getInstance().getContext(contextId);
-            const page = context.pages()[0];
-            await humanDelay();
-            await page.fill(selector, text, { timeout: 5000 });
-            return {
-                content: [{
-                    type: "text",
-                    text: `Successfully typed text into: ${selector}`
-                }]
-            };
-        } catch (error) {
-            return {
-                content: [{
-                    type: "text",
-                    text: `Error: ${error}`
-                }],
-                isError: true
-            };
-        }
-    }
-);
+                // 最初に少し待機（ページの準備ができるまで）
+                await new Promise(resolve => setTimeout(resolve, 1000));
 
-// スクロール操作を実行するツール
-server.tool(
-    "scroll",
-    {
-        contextId: z.string(),
-        y: z.number()
-    },
-    async ({ contextId, y }) => {
-        try {
-            const context = await BrowserManager.getInstance().getContext(contextId);
-            const page = context.pages()[0];
-            await humanDelay();
-            await page.evaluate((scrollY) => {
-                window.scrollTo({
-                    top: scrollY,
-                    behavior: 'smooth'
-                });
-            }, y);
-            return {
-                content: [{
-                    type: "text",
-                    text: `Successfully scrolled to Y: ${y}`
-                }]
-            };
-        } catch (error) {
-            return {
-                content: [{
-                    type: "text",
-                    text: `Error: ${error}`
-                }],
-                isError: true
-            };
-        }
-    }
-);
+                // 要素の中心をクリック
+                const box = await element.boundingBox();
+                if (box) {
+                    await page.mouse.click(
+                        box.x + box.width / 2,
+                        box.y + box.height / 2
+                    );
+                }
 
-// ブラウザコンテキストを閉じるツール
-server.tool(
-    "close_browser",
-    {
-        contextId: z.string()
-    },
-    async ({ contextId }) => {
-        try {
-            await BrowserManager.getInstance().closeContext(contextId);
-            return {
-                content: [{
-                    type: "text",
-                    text: "Browser context closed successfully"
-                }]
-            };
-        } catch (error) {
-            return {
-                content: [{
-                    type: "text",
-                    text: `Error: ${error}`
-                }],
-                isError: true
-            };
-        }
-    }
-);
+                // フォーカスを設定
+                await element.focus();
 
-// クリーンアップ処理
-process.on('SIGINT', async () => {
-    await BrowserManager.getInstance().closeAll();
-    process.exit(0);
+                // さらに短い待機（フォーカス後）
+                await humanDelay();
+
+                // 人間らしい入力を再現（タイピングミスと修正を含む）
+                let typed = '';
+                for (const char of text) {
+                    // ランダムにタイピングミスを入れる（5%の確率）
+                    if (Math.random() < 0.05 && typed.length > 0) {
+                        await humanDelay();
+                        await page.keyboard.press('Backspace');
+                        typed = typed.slice(0, -1);
+                        await humanDelay();
+                    }
+
+                    await page.keyboard.type(char);
+                    typed += char;
+                    
+                    // より自然な入力遅延（50-200ms）
+                    await new Promise(resolve => setTimeout(resolve, 50 + Math.random() * 150));
+                }
+
+                // 入力完了後の短い待機
+                await new Promise(resolve => setTimeout(resolve, 500));
+
+                // サブミットが要求された場合
+                if (submit) {
+                    await humanDelay();
+                    // 送信ボタンを探す
+                    const sendButton = await page.$('button[data-testid="send-button"]');
+                    if (sendButton) {
+                        await sendButton.click();
+                    } else {
+                        // ボタンが見つからない場合はEnterキーを使用
+                        await page.keyboard.press('Enter');
+                    }
+                }
+
+                return {
+                    content: [{
+                        type: "text",
+                        text: `Successfully typed "${text}"${submit ? " and submitted" : ""}`
+                    }]
+                };
+            }
+
+            case "get_element_info": {
+                const { contextId, selector } = validatedArgs;
+                const context = await BrowserManager.getInstance().getContext(contextId);
+                const page = context.pages()[0];
+                
+                const elementOps = new PlaywrightElementOperations(page);
+                const element = await page.waitForSelector(selector);
+                if (!element) {
+                    throw new Error(`Element not found: ${selector}`);
+                }
+                const elementInfo = await elementOps.getInfo(element);
+
+                return {
+                    content: [{
+                        type: "text",
+                        text: JSON.stringify(elementInfo, null, 2)
+                    }]
+                };
+            }
+
+            default:
+                throw new Error(`Unknown tool: ${name}`);
+        }
+    } catch (error) {
+        console.error('Operation failed:', error);
+        return {
+            content: [{
+                type: "text",
+                text: `Error: ${error instanceof Error ? error.message : String(error)}`
+            }],
+            isError: true
+        };
+    }
+});
+
+// ListToolsハンドラーを追加
+server.setRequestHandler(ListToolsRequestSchema, async () => {
+    return {
+        tools: Object.entries(toolSchemas).map(([name, schema]) => {
+            const shape = (schema as z.ZodObject<any>).shape;
+            return {
+                name,
+                description: toolDescriptions[name as keyof typeof toolDescriptions],
+                inputSchema: {
+                    type: "object",
+                    properties: Object.fromEntries(
+                        Object.entries(shape).map(([argName, argSchema]) => [
+                            argName,
+                            {
+                                type: argSchema instanceof z.ZodString ? "string" : "unknown",
+                                format: argName === "url" ? "url" : undefined
+                            }
+                        ])
+                    ),
+                    required: Object.keys(shape).filter(
+                        key => !(shape[key] instanceof z.ZodOptional)
+                    )
+                },
+                arguments: Object.entries(shape).map(([argName, argSchema]) => ({
+                    name: argName,
+                    description: argName === "contextId" 
+                        ? "The unique identifier of the browser context to use"
+                        : argName === "url"
+                        ? "The URL to navigate to"
+                        : argName === "selector"
+                        ? "CSS selector to identify the target element"
+                        : `Parameter ${argName} for ${name} tool`,
+                    required: !(argSchema instanceof z.ZodOptional)
+                }))
+            };
+        })
+    };
 });
 
 // サーバーの起動
 const transport = new StdioServerTransport();
-server.connect(transport).catch(console.error);
+await server.connect(transport);

@@ -1,5 +1,9 @@
 /// <reference types="jest" />
 
+// Playwrightのために必要なグローバル関数を定義
+global.setImmediate = global.setImmediate || ((fn: (...args: any[]) => void, ...args: any[]) => global.setTimeout(fn, 0, ...args));
+global.clearImmediate = global.clearImmediate || global.clearTimeout;
+
 // Increase timeout for Playwright operations
 jest.setTimeout(35000);
 
