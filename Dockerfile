@@ -1,4 +1,4 @@
-FROM mcr.microsoft.com/playwright:v1.50.1-focal as build
+FROM mcr.microsoft.com/playwright:v1.50.1-noble as build
 
 WORKDIR /app
 COPY package.json package-lock.json ./
@@ -12,7 +12,7 @@ COPY tsconfig.json ./
 RUN npm run build
 
 # Create a new image for the release
-FROM mcr.microsoft.com/playwright:v1.50.1-focal
+FROM mcr.microsoft.com/playwright:v1.50.1-noble
 
 # Set the working directory
 WORKDIR /app
