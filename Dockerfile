@@ -1,7 +1,5 @@
 FROM mcr.microsoft.com/playwright:focal as build
 
-ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD 1
-ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium-browser
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm install
