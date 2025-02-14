@@ -1,9 +1,9 @@
-FROM zenika/alpine-chrome:with-node as build
+FROM mcr.microsoft.com/playwright:focal as build
 
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD 1
 ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium-browser
-WORKDIR /usr/src/app
-COPY --chown=chrome package.json package-lock.json ./
+WORKDIR /app
+COPY package.json package-lock.json ./
 RUN npm install
 
 # Copy the rest of the application code
@@ -14,13 +14,13 @@ COPY tsconfig.json ./
 RUN npm run build
 
 # Create a new image for the release
-FROM zenika/alpine-chrome:with-node
+FROM mcr.microsoft.com/playwright:focal
 
 # Set the working directory
-WORKDIR /usr/src/app
+WORKDIR /app
 
 # Copy the built application from the previous stage
-COPY --from=build usr/src/app/build ./build
+COPY --from=build /app/build ./build
 COPY package.json package-lock.json ./
 
 # Install only production dependencies
