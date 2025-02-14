@@ -1,5 +1,7 @@
 # Playwright MCP Server
 
+[![smithery badge](https://smithery.ai/badge/@showfive/playwright-mcp-server)](https://smithery.ai/server/@showfive/playwright-mcp-server)
+
 このプロジェクトは、Model Context Protocol (MCP)を使用してPlaywrightのブラウザ自動化機能を提供するサーバーです。
 
 ## 機能
@@ -18,6 +20,15 @@
 
 ## インストール
 
+### Installing via Smithery
+
+To install Playwright MCP Server for Claude Desktop automatically via [Smithery](https://smithery.ai/server/@showfive/playwright-mcp-server):
+
+```bash
+npx -y @smithery/cli install @showfive/playwright-mcp-server --client claude
+```
+
+### Manual Installation
 ```bash
 npm install
 ```
