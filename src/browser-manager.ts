@@ -16,20 +16,8 @@ export class BrowserManager {
 
     async getBrowser(): Promise<Browser> {
         if (!this.browser) {
-            const defaultOptions = { headless: false };
-            const braveOptions = {
-                executablePath: 'C:\\Program Files\\BraveSoftware\\Brave-Browser\\Application\\brave.exe',
-                ...defaultOptions
-            };
-
-            try {
-                // まずBraveブラウザでの起動を試みる
-                this.browser = await chromium.launch(braveOptions);
-            } catch (error) {
-                // Braveが利用できない場合はデフォルトのChromiumを使用
-                console.log('Falling back to default browser');
-                this.browser = await chromium.launch(defaultOptions);
-            }
+            const options = { headless: false };
+            this.browser = await chromium.launch(options);
         }
         return this.browser;
     }
@@ -38,7 +26,17 @@ export class BrowserManager {
         const browser = await this.getBrowser();
         const context = await browser.newContext({
             viewport: { width: 1280, height: 720 },
-            userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
+            userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+            deviceScaleFactor: 1,
+            isMobile: false,
+            hasTouch: false,
+            javaScriptEnabled: true,
+            locale: 'ja-JP',
+            timezoneId: 'Asia/Tokyo',
+            geolocation: { longitude: 139.7454, latitude: 35.6586 }, // Tokyo
+            permissions: ['geolocation'],
+            colorScheme: 'light',
+            acceptDownloads: true
         });
         this.contexts.set(contextId, context);
         return context;

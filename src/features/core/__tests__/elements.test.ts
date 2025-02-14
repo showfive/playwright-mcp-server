@@ -36,7 +36,7 @@ describe('PlaywrightElementOperations', () => {
                     <header>
                         <h1 id="title">Test Page</h1>
                         <nav role="navigation">
-                            <button id="menu-button" class="btn">Menu</button>
+                            <button id="menu-button" class="btn" role="button">Menu</button>
                         </nav>
                     </header>
                     <main>
@@ -137,6 +137,116 @@ describe('PlaywrightElementOperations', () => {
     });
 
     describe('queryAll', () => {
+            describe('getClickableElements', () => {
+                it('should return structured clickable elements', async () => {
+                    const result = await elementOps.queryAll({
+                        selector: 'button, a, input',
+                        visible: true
+                    });
+    
+                    expect(result.success).toBe(true);
+                    expect(result.elements).toBeDefined();
+    
+                    // 新しい出力形式の検証
+                    expect(result.elements).toBeDefined();
+                    
+                    const output = result.elements ? result.elements.map(element => {
+                        const parts = [];
+                        parts.push(`${element.tag}[${element.id ? `#${element.id}` : '.'}]`);
+                        if (element.text) parts.push(element.text);
+                        
+                        const attrs = [];
+                        if (element.attributes.role) attrs.push(`@${element.attributes.role}`);
+                        if (element.attributes.type) attrs.push(`#${element.attributes.type}`);
+                        if (element.attributes.name) attrs.push(`$${element.attributes.name}`);
+                        if (element.attributes.disabled !== undefined) attrs.push('!');
+                        if (element.attributes.checked !== undefined) attrs.push('*');
+                        
+                        if (attrs.length > 0) parts.push(attrs.join(' '));
+                        
+                        return parts.join(' | ');
+                    }).join('\n') : '';
+    
+                    expect(output).not.toBe('');
+    
+                    // 必要な要素が含まれているか確認
+                    expect(output).toContain('button[#menu-button]');
+                    expect(output).toContain('button[#submit-button]');
+                    expect(output).toContain('a[.');
+                    expect(output).toContain('input[#test-input]');
+    
+                    // 属性が正しく表示されているか確認
+                    // 個々の要素の検証
+                    const lines = output.split('\n');
+                    
+                    // ボタン要素の検証
+                    const menuButton = lines.find(line => line.includes('menu-button'));
+                    expect(menuButton).toContain('button[#menu-button]');
+                    expect(menuButton).toContain('| Menu');
+                    expect(menuButton).toContain('| @button');
+    
+                    // input要素の検証
+                    const inputElement = lines.find(line => line.includes('test-input'));
+                    expect(inputElement).toContain('input[#test-input]');
+                    expect(inputElement).toContain('| #text');
+    
+                    // submitボタンの検証
+                    const submitButton = lines.find(line => line.includes('submit-button'));
+                    expect(submitButton).toContain('button[#submit-button]');
+                    expect(submitButton).toContain('| Submit');
+    
+                    // リンクの検証
+                    const linkElement = lines.find(line => line.includes('a[.'));
+                    expect(linkElement).toContain('a[.');
+                    expect(linkElement).toContain('| Test Link');
+                });
+    
+                it('should handle elements with special attributes', async () => {
+                    // テスト用のHTML設定
+                    await page.setContent(`
+                        <form>
+                            <input type="checkbox" id="check1" checked>
+                            <input type="text" id="text1" disabled>
+                            <button type="submit" name="submit-btn">Submit</button>
+                        </form>
+                    `);
+    
+                    const result = await elementOps.queryAll({
+                        selector: 'input, button',
+                        visible: true
+                    });
+    
+                    expect(result.success).toBe(true);
+                    expect(result.elements).toBeDefined();
+    
+                    expect(result.elements).toBeDefined();
+                    
+                    const output = result.elements ? result.elements.map(element => {
+                        const parts = [];
+                        parts.push(`${element.tag}[${element.id ? `#${element.id}` : '.'}]`);
+                        
+                        const attrs = [];
+                        if (element.attributes.type) attrs.push(`#${element.attributes.type}`);
+                        if (element.attributes.name) attrs.push(`$${element.attributes.name}`);
+                        if (element.attributes.disabled !== undefined) attrs.push('!');
+                        if (element.attributes.checked !== undefined) attrs.push('*');
+                        
+                        if (attrs.length > 0) parts.push(attrs.join(' '));
+                        
+                        return parts.join(' | ');
+                    }).join('\n') : '';
+    
+                    expect(output).not.toBe('');
+    
+                    // チェックボックスの状態を確認
+                    expect(output).toContain('input[#check1] | #checkbox *');
+                    // 無効な要素の確認
+                    expect(output).toContain('input[#text1] | #text !');
+                    // name属性の確認
+                    expect(output).toContain('button[.] | #submit $submit-btn');
+                });
+            });
+    
         it('should find all buttons', async () => {
             const result = await elementOps.queryAll({
                 role: 'button'

@@ -33,6 +33,7 @@ describe('Playwright MCP Server Integration', () => {
                     <main>
                         <form id="test-form">
                             <input type="text" id="test-input" placeholder="Enter text">
+                            <textarea id="test-textarea" placeholder="Enter description"></textarea>
                             <button id="test-button" class="btn-primary">Click me</button>
                         </form>
                         <div id="result"></div>
@@ -97,7 +98,64 @@ describe('Playwright MCP Server Integration', () => {
         }
     });
 
-    describe('Element Information Tools', () => {
+    describe('Navigation and Element Tools', () => {
+        it('should navigate to URL and return page content with interactive elements', async () => {
+            server.tool(
+                "navigate_test",
+                {
+                    contextId: z.string(),
+                    url: z.string()
+                },
+                async ({ contextId, url }) => {
+                    const context = await BrowserManager.getInstance().getContext(contextId);
+                    const page = await context.newPage();
+                    await page.goto(url, { waitUntil: 'networkidle' });
+
+                    // ページのコンテンツを取得
+                    const content = await page.content();
+                    
+                    // インタラクティブな要素を取得
+                    const elements = await page.$$eval(
+                        'button, input, select, textarea, a, [role="button"]',
+                        els => els.map(el => ({
+                            tag: el.tagName.toLowerCase(),
+                            text: el.textContent?.trim() || '',
+                            type: el.getAttribute('type'),
+                            role: el.getAttribute('role')
+                        }))
+                    );
+
+                    return {
+                        content: [{
+                            type: "text" as const,
+                            text: JSON.stringify({ content, elements })
+                        }]
+                    };
+                }
+            );
+
+            // 実際のテスト実行
+            const page = await testContext.newPage();
+            await page.goto(testPageUrl);
+            
+            // インタラクティブな要素の存在を確認
+            const elements = await page.$$eval(
+                'button, input, select, textarea, a, [role="button"]',
+                els => els.map(el => ({
+                    tag: el.tagName.toLowerCase(),
+                    id: el.id
+                }))
+            );
+
+            expect(elements).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({ id: 'test-input' }),
+                    expect.objectContaining({ id: 'test-button' }),
+                    expect.objectContaining({ id: 'nav-button' })
+                ])
+            );
+        });
+
         beforeEach(async () => {
             const testPage = await testContext.newPage();
             await testPage.goto(testPageUrl, { waitUntil: 'networkidle' });
@@ -285,6 +343,88 @@ describe('Playwright MCP Server Integration', () => {
             // 実際のブラウザ操作で存在しない要素へのアクセスを試みる
             const nonExistentElement = await page.$('#non-existent');
             expect(nonExistentElement).toBeNull();
+        });
+
+        it('should detect all interactive elements including textarea', async () => {
+            server.tool(
+                "test_interactive_elements",
+                {
+                    contextId: z.string(),
+                    includeDetails: z.boolean().optional()
+                },
+                async ({ contextId, includeDetails }) => {
+                    const context = await BrowserManager.getInstance().getContext(contextId);
+                    const page = context.pages()[0];
+                    
+                    // インタラクティブな要素を取得
+                    const elements = await page.$$eval(
+                        'button, input, textarea, select, a[href], [role="button"]',
+                        (els, withDetails) => els.map(el => {
+                            const base = {
+                                tag: el.tagName.toLowerCase(),
+                                id: el.id,
+                            };
+
+                            if (!withDetails) return base;
+
+                            const details: any = { ...base };
+                            if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
+                                details.placeholder = el.placeholder;
+                                details.value = el.value;
+                            }
+                            return details;
+                        }), includeDetails
+                    );
+
+                    return {
+                        content: [{
+                            type: "text" as const,
+                            text: JSON.stringify(elements)
+                        }]
+                    };
+                }
+            );
+
+            // 基本的な要素の存在確認
+            const elements = await page.$$eval(
+                'button, input, textarea, select, a[href], [role="button"]',
+                els => els.map(el => ({
+                    tag: el.tagName.toLowerCase(),
+                    id: el.id
+                }))
+            );
+
+            expect(elements).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({ id: 'test-input' }),
+                    expect.objectContaining({ id: 'test-textarea' }),
+                    expect.objectContaining({ id: 'test-button' }),
+                    expect.objectContaining({ id: 'nav-button' })
+                ])
+            );
+
+            // 詳細情報の確認
+            const detailedElements = await page.$$eval(
+                'input, textarea',
+                els => els.map(el => ({
+                    tag: el.tagName.toLowerCase(),
+                    id: el.id,
+                    placeholder: (el as HTMLInputElement | HTMLTextAreaElement).placeholder
+                }))
+            );
+
+            expect(detailedElements).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        id: 'test-input',
+                        placeholder: 'Enter text'
+                    }),
+                    expect.objectContaining({
+                        id: 'test-textarea',
+                        placeholder: 'Enter description'
+                    })
+                ])
+            );
         });
     });
 });

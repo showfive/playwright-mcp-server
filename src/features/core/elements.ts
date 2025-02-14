@@ -54,13 +54,32 @@ export class PlaywrightElementOperations implements ElementOperations {
                     height: window.innerHeight || document.documentElement.clientHeight
                 };
                 
-                const isVisible = !!(
-                    rect.width > 0 &&
-                    rect.height > 0 &&
-                    computedStyle.visibility !== 'hidden' &&
-                    computedStyle.display !== 'none' &&
-                    computedStyle.opacity !== '0'
-                );
+                // より詳細な可視性チェック
+                const isVisible = (function() {
+                    // 基本的な表示プロパティのチェック
+                    if (rect.width <= 0 || rect.height <= 0) return false;
+                    if (computedStyle.visibility === 'hidden') return false;
+                    if (computedStyle.display === 'none') return false;
+                    if (computedStyle.opacity === '0') return false;
+                    
+                    // 要素が画面内にあるかチェック
+                    if (rect.bottom < 0) return false;
+                    if (rect.right < 0) return false;
+                    if (rect.top > windowSize.height) return false;
+                    if (rect.left > windowSize.width) return false;
+                    
+                    // 親要素の可視性もチェック
+                    let parent = el.parentElement;
+                    while (parent) {
+                        const parentStyle = window.getComputedStyle(parent);
+                        if (parentStyle.display === 'none') return false;
+                        if (parentStyle.visibility === 'hidden') return false;
+                        if (parentStyle.opacity === '0') return false;
+                        parent = parent.parentElement;
+                    }
+                    
+                    return true;
+                })();
 
                 return {
                     tag: el.tagName.toLowerCase(),
@@ -147,14 +166,52 @@ export class PlaywrightElementOperations implements ElementOperations {
             let elements: ElementHandle<Element>[] = [];
             
             if (options.selector) {
-                const handles = await this.page.$$(options.selector);
-                const validElements = await Promise.all(
-                    handles.map(async handle => {
-                        const isElement = await handle.evaluate((node: Node) => node instanceof Element);
-                        return isElement ? handle as ElementHandle<Element> : null;
-                    })
-                );
-                elements = validElements.filter((el): el is ElementHandle<Element> => el !== null);
+                // セレクターを','で分割して個別に処理
+                const selectors = options.selector.split(',').map(s => s.trim());
+                
+                // クライアントサイドで要素を検索し、一意のパスを生成
+                const elementPaths = await this.page.evaluate((selectors) => {
+                    function getElementPath(element: Element): string {
+                        const path: string[] = [];
+                        let current = element;
+                        
+                        while (current && current !== document.documentElement) {
+                            let selector = current.tagName.toLowerCase();
+                            if (current.id) {
+                                selector += `#${current.id}`;
+                            } else {
+                                let index = 1;
+                                let sibling = current.previousElementSibling;
+                                while (sibling) {
+                                    if (sibling.tagName === current.tagName) index++;
+                                    sibling = sibling.previousElementSibling;
+                                }
+                                selector += `:nth-child(${index})`;
+                            }
+                            path.unshift(selector);
+                            current = current.parentElement!;
+                        }
+                        return path.join(' > ');
+                    }
+                    
+                    return selectors.flatMap(selector =>
+                        Array.from(document.querySelectorAll(selector))
+                            .map(el => getElementPath(el))
+                    );
+                }, selectors);
+                
+                // 生成されたパスを使用して要素のハンドルを取得
+                for (const path of elementPaths) {
+                    try {
+                        const element = await this.page.waitForSelector(path, {
+                            state: 'attached',
+                            timeout: 1000
+                        });
+                        if (element) elements.push(element);
+                    } catch (e) {
+                        console.warn(`Element handle not found for path: ${path}`);
+                    }
+                }
             } else if (options.role) {
                 const locator = this.page.getByRole(options.role, { name: options.name });
                 const roleElements = await locator.elementHandles();
@@ -191,7 +248,15 @@ export class PlaywrightElementOperations implements ElementOperations {
 
     async getStructure(options?: { maxDepth?: number; selector?: string }): Promise<ElementResult> {
         try {
-            await this.page.waitForLoadState('domcontentloaded');
+            // より柔軟な待機戦略
+            try {
+                await Promise.race([
+                    this.page.waitForLoadState('domcontentloaded', { timeout: 5000 }),
+                    this.page.waitForSelector('body', { timeout: 5000 })
+                ]);
+            } catch (e) {
+                console.warn('Page load timeout, proceeding with available content');
+            }
 
             const params = {
                 maxDepth: options?.maxDepth ?? this.DEFAULT_MAX_DEPTH,
@@ -226,7 +291,7 @@ export class PlaywrightElementOperations implements ElementOperations {
                         return attributes.length > 0 ? ' ' + attributes.join(' ') : '';
                     }
 
-                    function getStructuredInfo(element: Element, depth: number, maxDepth: number, tags: ReadonlyArray<string>, isTopLevel: boolean = false, parentIsTarget: boolean = false): string {
+                    function getStructuredInfo(element: Element, depth: number, maxDepth: number, tags: ReadonlyArray<string>, isTopLevel: boolean = false): string {
                         const indent = '    '.repeat(depth);
                         const tag = element.tagName.toLowerCase();
                         const attrStr = processElementAttributes(element);
@@ -234,12 +299,6 @@ export class PlaywrightElementOperations implements ElementOperations {
 
                         const childElements = Array.from(element.children);
                         const isSignificant = isSignificantElement(element, tags);
-                        const isTarget = selector ? element.matches(selector) : false;
-
-                        // セレクターが指定されている場合の処理
-                        if (selector && !parentIsTarget && !isTarget) {
-                            return '';
-                        }
 
                         // テキストコンテンツの処理
                         if (childElements.length === 0) {
@@ -251,8 +310,7 @@ export class PlaywrightElementOperations implements ElementOperations {
                         }
 
                         // 深さの制限チェック
-                        const shouldExpandChildren = (isTopLevel || isSignificant || depth < maxDepth);
-                        if (!shouldExpandChildren) {
+                        if (!isTopLevel && !isSignificant && depth >= maxDepth) {
                             return output + '...' + `</${tag}>`;
                         }
 
@@ -265,8 +323,7 @@ export class PlaywrightElementOperations implements ElementOperations {
                                 depth + 1,
                                 maxDepth,
                                 tags,
-                                false,
-                                isTarget
+                                false
                             );
                             if (childOutput) {
                                 const childLines = childOutput.split('\n');
@@ -277,7 +334,7 @@ export class PlaywrightElementOperations implements ElementOperations {
                                 }
                             }
                         }
-                        output += indent;
+                        output = output.trimEnd();
                         return output + `</${tag}>`;
                     }
 
@@ -308,7 +365,7 @@ export class PlaywrightElementOperations implements ElementOperations {
                     const processedElements = topLevelElements.map(element => {
                         const html = getStructuredInfo(
                             element,
-                            0,  // インデントを0から開始
+                            0,
                             maxDepth,
                             significantTags,
                             true
