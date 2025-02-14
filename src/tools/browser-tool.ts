@@ -152,8 +152,11 @@ export const createBrowserContext = async () => {
     
     // 次にコンテキストを作成
     await browserManager.createContext(contextId);
-    
-    return createSuccessResponse(JSON.stringify({ contextId }));
+
+    // ホームページにナビゲート
+    const result = await navigateToUrl(contextId, 'https://www.bing.com');
+    const content = result.content[0].text;
+    return createSuccessResponse(JSON.stringify({ contextId, content }));
 };
 
 /**
@@ -164,29 +167,9 @@ export const navigateToUrl = async (contextId: string, url: string) => {
     const page = await context.newPage();
     try {
         await page.goto(url, {
-            waitUntil: 'networkidle',
+            waitUntil: 'load',
             timeout: 15000
         });
-
-        // ページの完全なロードを待機
-        await page.waitForLoadState('networkidle');
-        await page.waitForLoadState('domcontentloaded');
-        
-        // フォーム要素の読み込みを待機
-        try {
-            await page.waitForSelector('textarea, [contenteditable="true"], #prompt-textarea', { timeout: 5000 });
-        } catch (e) {
-            console.log('Input element not found within timeout');
-        }
-        
-        // 追加の待機時間（動的コンテンツのロード用）
-        await new Promise(resolve => setTimeout(resolve, 2000));
-
-        // ページの完全な読み込みを待機
-        await Promise.all([
-            page.waitForLoadState('networkidle'),
-            page.waitForLoadState('domcontentloaded')
-        ]);
 
         // 追加の待機時間（動的要素の読み込み用）
         await page.waitForTimeout(2000);

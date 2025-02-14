@@ -231,7 +231,7 @@ export const getElementInfo = async ({ contextId, selector }: GetElementInfoOpti
 /**
  * インタラクティブな要素を取得
  */
-export const getInteractiveElements = async (contextId: string, includeDetails: boolean = true) => {
+export const getInteractiveElements = async (contextId: string, includeDetails: boolean = false) => {
     const context = await BrowserManager.getInstance().getContext(contextId);
     const page = context.pages()[0];
 
@@ -279,14 +279,32 @@ export const getInteractiveElements = async (contextId: string, includeDetails: 
             if (element.readOnly) attributes.push('!readonly');
             if (element.multiple) attributes.push('!multiple');
             
-            const attrStr = attributes.length > 0 ? ` | ${attributes.join(' ')}` : '';
-            const textStr = element.text ? ` | "${element.text}"` : '';
-            
-            return `${element.tag}${textStr}${attrStr}\n`;
+            const attrStr = attributes.length > 0 ? ` | ${attributes.join(' ')}` : '|';
+            const textStr = element.text ? ` | "${element.text}"` : ' |';
+
+            if (attrStr === '|' && textStr === ' |') {
+                return ``;
+            }
+            return `- ${element.tag}${textStr}${attrStr}\n`;
         }
     }
 
-    const output = interactiveElements.map(elementToString).join('');
+    const stringArray = interactiveElements.map(elementToString);
+
+    let output = '';
+    if(includeDetails) {
+        output = stringArray.join('');
+    } else {
+        const maxLength = 5;
+        let count = 0;
+        for (const str of stringArray) {
+            if (count >= maxLength) break;
+            if (str === '') continue;
+            output += str;
+            count++;
+        }
+        output += `...and ${stringArray.length - maxLength} more elements\nif you need more details, please set includeDetails to true`;
+    }
     return createSuccessResponse(output);
 };
 
