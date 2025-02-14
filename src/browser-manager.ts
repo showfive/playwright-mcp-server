@@ -16,7 +16,7 @@ export class BrowserManager {
 
     async getBrowser(): Promise<Browser> {
         if (!this.browser) {
-            const options = { headless: false };
+            const options = { headless: true };
             this.browser = await chromium.launch(options);
         }
         return this.browser;
