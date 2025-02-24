@@ -1,37 +1,19 @@
 {
-  "name": "playwright-mcp-server",
-  "version": "1.0.0",
-  "description": "Playwright automation MCP server",
-  "main": "build/index.js",
   "type": "module",
   "scripts": {
     "build": "tsc",
-    "start": "node build/index.js",
-    "dev": "tsc && node build/index.js",
-    "test": "jest",
-    "test:watch": "jest --watch",
-    "test:coverage": "jest --coverage"
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts"
   },
-  "keywords": [
-    "mcp",
-    "playwright",
-    "automation"
-  ],
-  "author": "",
-  "license": "ISC",
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.4.1",
-    "@types/node": "^22.13.1",
+    "@modelcontextprotocol/sdk": "^1.6.0",
+    "@types/jsdom": "^21.1.7",
     "jsdom": "^26.0.0",
-    "playwright": "^1.50.1",
-    "typescript": "^5.7.3"
+    "playwright": "^1.50.1"
   },
   "devDependencies": {
-    "@playwright/test": "^1.50.1",
-    "@testing-library/jest-dom": "^6.6.3",
-    "@types/jest": "^29.5.14",
-    "jest": "^29.7.0",
-    "jest-environment-jsdom": "^29.7.0",
-    "ts-jest": "^29.2.5"
+    "@types/node": "^20.11.19",
+    "tsx": "^4.7.1",
+    "typescript": "^5.3.3"
   }
 }

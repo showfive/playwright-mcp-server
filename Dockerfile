@@ -18,7 +18,7 @@ FROM mcr.microsoft.com/playwright:v1.50.1-noble
 WORKDIR /app
 
 # Copy the built application from the previous stage
-COPY --from=build /app/build ./build
+COPY --from=build /app/dist ./dist
 COPY package.json package-lock.json ./
 
 # Install only production dependencies
@@ -28,4 +28,4 @@ RUN npm ci --only=production
 EXPOSE 3000
 
 # Start the application
-CMD ["node", "build/index.js"]
+CMD ["node", "dist/index.js"]
