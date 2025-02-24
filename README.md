@@ -2,16 +2,20 @@
 
 [![smithery badge](https://smithery.ai/badge/@showfive/playwright-mcp-server)](https://smithery.ai/server/@showfive/playwright-mcp-server)
 
-このプロジェクトは、Model Context Protocol (MCP)を使用してPlaywrightのウェブページコンテンツ取得機能を提供するサーバーです。
+English | [日本語](README.ja.md)
 
-## 機能
+This project is a server that provides Playwright web page content retrieval functionality using the Model Context Protocol (MCP).
 
-- ページナビゲーション
-- ページ全体のコンテンツ取得
-- 表示されているコンテンツの取得
-- テスト用のエコー機能
+## Features
 
-## インストール
+- Page navigation
+- Full page content retrieval
+- Visible content retrieval
+- Interactive elements detection
+- Mouse operation simulation
+- Echo functionality for testing
+
+## Installation
 
 ### Installing via Smithery
 
@@ -26,82 +30,113 @@ npx -y @smithery/cli install @showfive/playwright-mcp-server --client claude
 npm install
 ```
 
-## 使用方法
+## Usage
 
-### サーバーの起動
+### Starting the Server
 
 ```bash
 npm run build
 npm start
 ```
 
-### MCPツール
+### MCP Tools
 
-以下のツールが利用可能です：
+The following tools are available:
 
 1. `navigate`
-   - 指定したURLにページを移動
-   - 引数: `{ url: string }`
-   - 戻り値: ナビゲーション結果
+   - Navigate to a specified URL
+   - Arguments: `{ url: string }`
+   - Returns: Navigation result
 
 2. `get_all_content`
-   - ページ全体のコンテンツを取得
-   - 引数: なし
-   - 戻り値: ページの全テキストコンテンツ
+   - Retrieve content from the entire page
+   - Arguments: None
+   - Returns: All text content from the page
 
 3. `get_visible_content`
-   - 現在表示されているコンテンツを取得
-   - 引数: なし
-   - 戻り値: 表示されているテキストコンテンツ
+   - Retrieve currently visible content
+   - Arguments: `{ minVisiblePercentage?: number }`
+   - Returns: Visible text content
 
-4. `echo`
-   - テスト用のエコーツール
-   - 引数: `{ message: string }`
-   - 戻り値: 送信したメッセージ
+4. `get_interactive_elements`
+   - Get position information of interactive elements (buttons, links, etc.) on the page
+   - Arguments: None
+   - Returns: Coordinates and boundary information of interactive elements
 
-## 開発
+5. `move_mouse`
+   - Move mouse cursor to specified coordinates
+   - Arguments: `{ x: number, y: number }`
+   - Returns: Operation result
 
-### テストの実行
+6. `mouse_click`
+   - Execute mouse click at specified coordinates
+   - Arguments: `{ x: number, y: number, button?: "left" | "right" | "middle", clickCount?: number }`
+   - Returns: Click operation result
+
+7. `mouse_wheel`
+   - Execute mouse wheel scrolling
+   - Arguments: `{ deltaY: number, deltaX?: number }`
+   - Returns: Scroll operation result
+
+8. `drag_and_drop`
+   - Execute drag and drop operation
+   - Arguments: `{ sourceX: number, sourceY: number, targetX: number, targetY: number }`
+   - Returns: Drag and drop operation result
+
+9. `echo`
+   - Echo tool for testing
+   - Arguments: `{ message: string }`
+   - Returns: Sent message
+
+## Development
+
+### Running Tests
 
 ```bash
-# 全てのテストを実行
+# Run all tests
 npm test
 
-# テストをウォッチモードで実行
+# Run tests in watch mode
 npm run test:watch
 
-# カバレッジレポートを生成
+# Generate coverage report
 npm run test:coverage
 ```
 
-### テストの構成
+### Test Structure
 
-- `tools/*.test.ts`: 各ツールの機能テスト
-- `mcp-server.test.ts`: MCPサーバーの機能テスト
+- `tools/*.test.ts`: Function tests for each tool
+- `mcp-server.test.ts`: MCP server function tests
 
-## 実装の特徴
+## Implementation Features
 
-1. コンテンツ取得
-   - ページ全体のコンテンツ取得
-   - 表示されているコンテンツのみの取得
-   - HTMLの適切なパース処理
+1. Content Retrieval
+   - Full page content retrieval
+   - Visible content only retrieval
+   - Proper HTML parsing
 
-2. エラーハンドリング
-   - ナビゲーションエラーの適切な処理
-   - タイムアウト処理
-   - 無効なURLの検出
+2. Interaction
+   - Detection and position information retrieval of interactive elements
+   - Mouse operation simulation (movement, clicks, scrolling)
+   - Drag and drop support
 
-3. 設定の柔軟性
-   - ヘッドレス/ヘッドモードの選択
-   - カスタムユーザーエージェント
-   - ビューポートサイズの設定
+3. Error Handling
+   - Proper navigation error handling
+   - Timeout processing
+   - Invalid URL detection
 
-## 注意事項
+4. Configuration Flexibility
+   - Headless/head mode selection
+   - Custom user agent
+   - Viewport size settings
 
-- MCPサーバーを使用する前に、必要な環境変数が設定されていることを確認してください。
-- ウェブページのコンテンツ取得は対象のウェブサイトの利用規約に従って行ってください。
-- 大量のリクエストを送信する場合は、適切な間隔を設けてください。
+## Important Notes
 
-## ライセンス
+- Ensure necessary environment variables are set before using the MCP server
+- Follow the terms of service of target websites when retrieving web page content
+- Maintain appropriate intervals when sending multiple requests
+- When performing mouse operations, maintain appropriate intervals as they simulate actual user interactions
+
+## License
 
 ISC
